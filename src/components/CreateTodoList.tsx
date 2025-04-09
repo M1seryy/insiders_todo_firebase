@@ -20,8 +20,6 @@ const CreateTodoList = () => {
 
       try {
         await createTodoList(userId, title, userEmail);
-
-        window.location.href = "/";
       } catch (err: any) {
         setError("Не вдалося створити список!");
       }
