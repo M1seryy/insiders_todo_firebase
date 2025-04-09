@@ -2,7 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { auth, db, deleteTodoList } from "../services/firebase";
+import {
+  auth,
+  db,
+  deleteTodoList,
+  getUserRoleInList,
+} from "../services/firebase";
 import {
   collection,
   deleteDoc,
@@ -17,6 +22,8 @@ import { onAuthStateChanged } from "firebase/auth";
 const TodoListsPage = () => {
   const navigate = useNavigate();
   const [todoLists, setTodoLists] = useState<any[]>([]);
+  const [userRoleMap, setUserRoleMap] = useState<Record<string, string>>({});
+
   const fetchTodoLists = async (userEmail: string) => {
     try {
       const todoListsRef = collection(db, "todoLists");
@@ -40,6 +47,21 @@ const TodoListsPage = () => {
     }
   };
   useEffect(() => {
+    const fetchRoles = async () => {
+      const user = auth.currentUser;
+      if (!user || !user.email) return;
+
+      const roles: Record<string, string> = {};
+
+      for (const list of todoLists) {
+        const role = await getUserRoleInList(list.id, user.email);
+        roles[list.id] = role || "viewer";
+      }
+
+      setUserRoleMap(roles);
+    };
+
+    if (todoLists.length) fetchRoles();
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user && user.email) {
         fetchTodoLists(user.email);
@@ -48,7 +70,7 @@ const TodoListsPage = () => {
       }
     });
 
-    return () => unsubscribe(); // при анмаунті
+    return () => unsubscribe();
   }, [todoLists]);
 
   const handleSelectList = (listId: string) => {
@@ -74,22 +96,25 @@ const TodoListsPage = () => {
               >
                 Переглянути та додати завдання
               </button>
-              <button
-                onClick={async () => {
-                  try {
-                    await deleteTodoList(list.id);
-                    setTodoLists((prev) =>
-                      prev.filter((l) => l.id !== list.id)
-                    );
-                  } catch (error) {
-                    alert("Ви не маєте прав на видалення цього списку.");
-                    console.error(error);
-                  }
-                }}
-                className="text-red-500 hover:text-red-700 text-sm"
-              >
-                Видалити
-              </button>
+              {(userRoleMap[list.id] === "admin" ||
+                userRoleMap[list.id] === "owner") && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await deleteTodoList(list.id);
+                      setTodoLists((prev) =>
+                        prev.filter((l) => l.id !== list.id)
+                      );
+                    } catch (error) {
+                      alert("Ви не маєте прав на видалення цього списку.");
+                      console.error(error);
+                    }
+                  }}
+                  className="text-red-500 hover:text-red-700 text-sm"
+                >
+                  Видалити
+                </button>
+              )}
             </li>
           ))
         ) : (

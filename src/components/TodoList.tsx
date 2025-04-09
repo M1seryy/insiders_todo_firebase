@@ -1,7 +1,7 @@
 /** @format */
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { db } from "../services/firebase";
+import { auth, db, getUserRoleInList } from "../services/firebase";
 import {
   collection,
   getDocs,
@@ -21,6 +21,7 @@ const TodoList = () => {
   const [newTaskDescription, setNewTaskDescription] = useState("");
   const [listName, setListName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const fetchTasks = async () => {
     if (!listId) return;
@@ -61,8 +62,17 @@ const TodoList = () => {
   };
 
   useEffect(() => {
+    const fetchRole = async () => {
+      const user = auth.currentUser;
+      if (user?.email && listId) {
+        const role = await getUserRoleInList(listId, user.email);
+        setUserRole(role);
+      }
+    };
+
     fetchTasks();
     fetchListName();
+    fetchRole();
   }, [listId]);
 
   const handleAddTask = async (e: React.FormEvent) => {
@@ -101,13 +111,15 @@ const TodoList = () => {
     <div className="max-w-md mx-auto p-4">
       <h2 className="text-2xl font-bold mb-6 text-center">{listName}</h2>
 
-      <AddTaskForm
-        newTaskTitle={newTaskTitle}
-        setNewTaskTitle={setNewTaskTitle}
-        newTaskDescription={newTaskDescription}
-        setNewTaskDescription={setNewTaskDescription}
-        handleAddTask={handleAddTask}
-      />
+      {(userRole === "admin" || userRole === "owner") && (
+        <AddTaskForm
+          newTaskTitle={newTaskTitle}
+          setNewTaskTitle={setNewTaskTitle}
+          newTaskDescription={newTaskDescription}
+          setNewTaskDescription={setNewTaskDescription}
+          handleAddTask={handleAddTask}
+        />
+      )}
 
       <div className="mt-8">
         <h3 className="text-xl font-semibold mb-4">Завдання</h3>
@@ -137,12 +149,14 @@ const TodoList = () => {
                       {task.completed ? "Виконано" : "Не виконане"}
                     </span>
 
-                    <button
-                      onClick={() => handleDeleteTask(task.id)}
-                      className="text-red-500 hover:text-red-700 text-sm"
-                    >
-                      Видалити
-                    </button>
+                    {(userRole === "admin" || userRole === "owner") && (
+                      <button
+                        onClick={() => handleDeleteTask(task.id)}
+                        className="text-red-500 hover:text-red-700 text-sm"
+                      >
+                        Видалити
+                      </button>
+                    )}
                   </div>
                 </div>
               </li>
