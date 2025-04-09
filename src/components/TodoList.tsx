@@ -1,7 +1,8 @@
 /** @format */
+
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
-import { auth, db, getUserRoleInList } from "../services/firebase";
+import { db, auth } from "../services/firebase";
 import {
   collection,
   getDocs,
@@ -10,9 +11,9 @@ import {
   doc,
   getDoc,
   deleteDoc,
+  updateDoc,
 } from "firebase/firestore";
 import AddTaskForm from "./AddTaskForm";
-import { Task } from "../types/types";
 
 const TodoList = () => {
   const { listId } = useParams();
@@ -21,7 +22,54 @@ const TodoList = () => {
   const [newTaskDescription, setNewTaskDescription] = useState("");
   const [listName, setListName] = useState("");
   const [loading, setLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTaskTitle, setEditingTaskTitle] = useState<string>("");
+  const [editingTaskDescription, setEditingTaskDescription] =
+    useState<string>("");
+  const [userRole, setUserRole] = useState<string>("");
+
+  // Функція для отримання ролі користувача
+  const fetchUserRole = async (listId: string) => {
+    const user = auth.currentUser;
+    if (!user) {
+      console.log("Користувач не авторизований");
+      return;
+    }
+
+    try {
+      const listRef = doc(db, "todoLists", listId);
+      const listDoc = await getDoc(listRef);
+
+      if (listDoc.exists()) {
+        const listData = listDoc.data();
+        const collaborators = listData?.collaborators || [];
+        const ownerId = listData?.ownerId;
+
+        if (user.uid === ownerId) {
+          setUserRole("owner");
+          console.log("Користувач є власником списку");
+          return;
+        }
+
+        const collaborator = collaborators.find(
+          (collab: { email: string; role: string }) =>
+            collab.email === user.email
+        );
+
+        if (collaborator?.role === "admin") {
+          setUserRole("admin");
+          console.log("Користувач є адміністратором");
+        } else {
+          setUserRole("viewer");
+          console.log("Користувач є переглядачем");
+        }
+      } else {
+        console.log("Список не знайдений");
+      }
+    } catch (error) {
+      console.error("Error fetching user role:", error);
+    }
+  };
 
   const fetchTasks = async () => {
     if (!listId) return;
@@ -31,7 +79,6 @@ const TodoList = () => {
       const q = query(tasksRef);
       const querySnapshot = await getDocs(q);
 
-      // TYPE ERROR WITH TASKS  || TASKList != Task interface
       const tasksList = querySnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
@@ -62,17 +109,11 @@ const TodoList = () => {
   };
 
   useEffect(() => {
-    const fetchRole = async () => {
-      const user = auth.currentUser;
-      if (user?.email && listId) {
-        const role = await getUserRoleInList(listId, user.email);
-        setUserRole(role);
-      }
-    };
-
-    fetchTasks();
-    fetchListName();
-    fetchRole();
+    if (listId) {
+      fetchTasks();
+      fetchListName();
+      fetchUserRole(listId);
+    }
   }, [listId]);
 
   const handleAddTask = async (e: React.FormEvent) => {
@@ -94,31 +135,90 @@ const TodoList = () => {
     }
   };
 
-  if (loading) {
-    return <div className="p-4">Завантаження...</div>;
-  }
   const handleDeleteTask = async (taskId: string) => {
     if (!listId) return;
 
     try {
       await deleteDoc(doc(db, "todoLists", listId, "tasks", taskId));
-      fetchTasks(); // оновлюємо список після видалення
+      fetchTasks();
     } catch (error) {
       console.error("Error deleting task:", error);
     }
   };
+
+  const handleEditTask = (task: any) => {
+    setEditingTaskId(task.id);
+    setEditingTaskTitle(task.title);
+    setEditingTaskDescription(task.description || "");
+  };
+
+  const handleUpdateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTaskId || !listId) return;
+
+    try {
+      const taskRef = doc(db, "todoLists", listId, "tasks", editingTaskId);
+      await updateDoc(taskRef, {
+        title: editingTaskTitle,
+        description: editingTaskDescription,
+      });
+      setEditingTaskId(null);
+      fetchTasks();
+    } catch (error) {
+      console.error("Error updating task:", error);
+    }
+  };
+
+  // Логування значення userRole для перевірки
+  useEffect(() => {
+    console.log("User Role:", userRole);
+  }, [userRole]);
+
+  if (loading) {
+    return <div className="p-4">Завантаження...</div>;
+  }
+
   return (
     <div className="max-w-md mx-auto p-4">
       <h2 className="text-2xl font-bold mb-6 text-center">{listName}</h2>
 
-      {(userRole === "admin" || userRole === "owner") && (
-        <AddTaskForm
-          newTaskTitle={newTaskTitle}
-          setNewTaskTitle={setNewTaskTitle}
-          newTaskDescription={newTaskDescription}
-          setNewTaskDescription={setNewTaskDescription}
-          handleAddTask={handleAddTask}
-        />
+      <AddTaskForm
+        newTaskTitle={newTaskTitle}
+        setNewTaskTitle={setNewTaskTitle}
+        newTaskDescription={newTaskDescription}
+        setNewTaskDescription={setNewTaskDescription}
+        handleAddTask={handleAddTask}
+      />
+
+      {editingTaskId && (
+        <div className="bg-white p-4 rounded-lg shadow mt-4">
+          <h3 className="text-xl font-semibold mb-4">Редагувати завдання</h3>
+          <form onSubmit={handleUpdateTask}>
+            <div>
+              <label className="block mb-2">Назва:</label>
+              <input
+                type="text"
+                className="w-full p-2 border border-gray-300 rounded-md"
+                value={editingTaskTitle}
+                onChange={(e) => setEditingTaskTitle(e.target.value)}
+              />
+            </div>
+            <div className="mt-4">
+              <label className="block mb-2">Опис:</label>
+              <textarea
+                className="w-full p-2 border border-gray-300 rounded-md"
+                value={editingTaskDescription}
+                onChange={(e) => setEditingTaskDescription(e.target.value)}
+              />
+            </div>
+            <button
+              type="submit"
+              className="mt-4 bg-blue-500 text-white px-4 py-2 rounded-md"
+            >
+              Оновити
+            </button>
+          </form>
+        </div>
       )}
 
       <div className="mt-8">
@@ -150,12 +250,20 @@ const TodoList = () => {
                     </span>
 
                     {(userRole === "admin" || userRole === "owner") && (
-                      <button
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="text-red-500 hover:text-red-700 text-sm"
-                      >
-                        Видалити
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleEditTask(task)}
+                          className="text-blue-500 hover:text-blue-700 text-sm mt-2"
+                        >
+                          Редагувати
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="text-red-500 hover:text-red-700 text-sm mt-2"
+                        >
+                          Видалити
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
